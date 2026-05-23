@@ -1,10 +1,10 @@
-#include <stdio.h>
-#include <math.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <stdio.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include <mpu6050.h>
+#include <math.h>
 
 #define I2C_SDA  21
 #define I2C_SCL  27
@@ -18,6 +18,8 @@
 #define DT          (LOOP_MS / 1000.0f)
 
 static const char *TAG = "imu";
+    float roll  = 0.0f;
+    float pitch = 0.0f;
 
 void mpu6050_task(void *pvParameters)
 {
@@ -35,9 +37,9 @@ void mpu6050_task(void *pvParameters)
 
     ESP_ERROR_CHECK(mpu6050_init(&dev));
 
-    float roll  = 0.0f;
-    float pitch = 0.0f;
-    bool first  = true;
+        //roll = 0.0f; 
+	//pitch = 0.0f; 
+        bool first  = true;
 
     while (1) {
         mpu6050_acceleration_t accel = { 0 };
@@ -67,16 +69,20 @@ void mpu6050_task(void *pvParameters)
         }
 
         // In-place terminal update
-        if (!first) printf("\033[2A");
-        printf("Roll:  %8.2f deg\033[K\n", roll);
-        printf("Pitch: %8.2f deg\033[K\n", pitch);
+        //if (!first) printf("\033[2A");
+        //printf("Roll:  %8.2f deg\033[K\n", roll);
+        //printf("Pitch: %8.2f deg\033[K\n", pitch);
 
         vTaskDelay(pdMS_TO_TICKS(LOOP_MS));
     }
 }
-
-void app_main(void)
+void enable_mpu(void)
 {
     ESP_ERROR_CHECK(i2cdev_init());
     xTaskCreate(mpu6050_task, "mpu6050_task", configMINIMAL_STACK_SIZE * 6, NULL, 5, NULL);
 }
+//void app_main(void)
+//{
+//    ESP_ERROR_CHECK(i2cdev_init());
+//    xTaskCreate(mpu6050_task, "mpu6050_task", configMINIMAL_STACK_SIZE * 6, NULL, 5, NULL);
+//}
