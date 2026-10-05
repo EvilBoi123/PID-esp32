@@ -3,12 +3,16 @@
 #include <stdio.h>
 #include <math.h>
 
+
+#include "ledc.h"
 #include "pid.h"
 #include "mpu6050.h"
 
 #define LOOP_MS     10          // 10ms = 100Hz
 #define DT          (LOOP_MS / 1000.0f)
 
+
+// From mpu6050 file
 extern mpu6050_dev_t dev; 
 extern float roll; 
 extern float pitch;
@@ -18,8 +22,8 @@ extern void enable_mpu(void);
 static float speed_top_left    = 0.0f;
 static float speed_bottom_left = 0.0f;
 
-Fan_config_t top_left = { "Top left", BASE_SETPOINT, -1 }; 
-Fan_config_t bottom_left = { "Bottom left", BASE_SETPOINT, 1 };
+Fan_config_t top_left = { "Top left", BASE_SETPOINT, -1, LEDC_CHANNEL_1, &speed_top_left }; 
+Fan_config_t bottom_left = { "Bottom left", BASE_SETPOINT, 1, LEDC_CHANNEL_2, &speed_bottom_left };
 
 void pid_init(PIDController *pid, float kp, float ki, float kd, float min_out, float max_out){
     pid->kp = kp;
@@ -32,11 +36,17 @@ void pid_init(PIDController *pid, float kp, float ki, float kd, float min_out, f
 }
 
 float pid_compute (PIDController *pid, float setpoint, float input, float dt){
-	//float error = pid->setpoint - input; 
 	float error = setpoint - input; 
-        pid->integral += error * dt; 
-        float derivative = (error - pid->prev_error) / dt; 
+        //pid->integral += error * dt; 
 	
+	float integral_contribution = pid->ki * (pid->integral + error * dt);
+    if (integral_contribution < pid->output_max &&
+        integral_contribution > pid->output_min) {
+        pid->integral += error * dt;
+    }	
+
+
+        float derivative = (error - pid->prev_error) / dt; 
 
 	float output = pid->kp * error + pid->ki * pid->integral + pid->kd * derivative; 
 
@@ -49,26 +59,18 @@ float pid_compute (PIDController *pid, float setpoint, float input, float dt){
 
 void pid_task(void *pvParameters){
 	Fan_config_t *config = (Fan_config_t *)pvParameters;
-	//float fan_speed; 
 	float speed; 
-	//bool first = true; 
 	PIDController pid_handler; 
-	pid_init(&pid_handler, 1.0, 0.06, 0.02, 0.0, 100.0); 
+	pid_init(&pid_handler, 0.05313, 0.005f, 0.000495f, 0.0, 255.0f); 
 	while (1){
 		float effective_roll = roll * config->direction;
 		speed = pid_compute(&pid_handler, config->target_setpoint, effective_roll, DT); 
-		//if (!first) printf("\033[3A");
-        	//printf("Current Roll:  %8.2f deg\033[K\n", roll);
-        	//printf("Current Pitch: %8.2f deg\033[K\n", pitch);
-        	//printf("PID Fan Speed: %8.2f Output\033[K\n", fan_speed);
-		//printf("\n[%s] Target: %5.1f Roll: %6.2f deg\033[K Output Speed: %6.2f\033[K", config->name, config->target_setpoint, roll, fan_speed);
-		//printf("[%s] Target: %5.1f | Roll: %6.2f deg | Output Speed: %6.2f\n", config->name, config->target_setpoint, roll, fan_speed);
-        	//first = false;
-		
 		if (config->direction > 0)
             	 speed_bottom_left = speed;
         	else
             	 speed_top_left = speed;
+
+		*config->value = speed;
 		vTaskDelay(pdMS_TO_TICKS(LOOP_MS));
 	}; 
 }
@@ -85,7 +87,8 @@ void print_task(void *pvParameters)
                bottom_left.target_setpoint, roll, speed_bottom_left);
         printf("[Roll]  %8.2f deg\033[K\n", roll);
         printf("[Pitch] %8.2f deg\033[K\n", pitch);
-
+	
+	//printf("[I_top] %8.3f  [I_bot] %8.3f\033[K\n", speed_top_left, speed_bottom_left);
         first = false;
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -99,6 +102,10 @@ void app_main(){
     xTaskCreate(pid_task, "bottom_left", 4096, (void *)&bottom_left, 5, NULL);
     xTaskCreate(pid_task, "top_left", 4096, (void *)&top_left, 5, NULL);
     xTaskCreate(print_task, "print",      4096, NULL, 4, NULL);
+
+    motor_init();
+    xTaskCreate(motor_throttle, "motor_bottom_left", 4096, (void *)&bottom_left, 5, NULL);
+    xTaskCreate(motor_throttle, "motor_top_left", 4096, (void *)&top_left, 5, NULL);
 
 };
 
